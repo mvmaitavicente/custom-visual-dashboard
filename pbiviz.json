@@ -1,0 +1,25 @@
+{
+  "visual": {
+    "name": "cardCarouselPro",
+    "displayName": "Card Carousel Pro",
+    "guid": "cardCarouselPro1234567890",
+    "visualClassName": "Visual",
+    "version": "1.0.0.0",
+    "description": "Carrusel interactivo de tarjetas para visualizar indicadores por categoría.",
+    "supportUrl": "https://github.com/mvmaitavicente",
+    "gitHubUrl": "https://github.com/mvmaitavicente"
+  },
+  "apiVersion": "5.3.0",
+  "author": {
+    "name": "Victor Maita",
+    "email": "pathofdeath2024@gmail.com"
+  },
+  "assets": {
+    "icon": "assets/icon.png"
+  },
+  "externalJS": [],
+  "style": "style/visual.less",
+  "capabilities": "capabilities.json",
+  "dependencies": null,
+  "stringResources": []
+}

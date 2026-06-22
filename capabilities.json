@@ -1,0 +1,35 @@
+{
+  "privileges": [],
+  "dataRoles": [
+    { "displayName": "Documento", "name": "documento", "kind": "Grouping" },
+    { "displayName": "Tipo Personal", "name": "tipoPersonal", "kind": "Grouping" },
+    { "displayName": "Área", "name": "area", "kind": "Grouping" },
+    { "displayName": "Cargo CAS", "name": "cargo", "kind": "Grouping" },
+    { "displayName": "Profesión Locador", "name": "profesion", "kind": "Grouping" },
+    { "displayName": "Nombre", "name": "nombre", "kind": "Grouping" },
+    { "displayName": "Monto Locador", "name": "monto", "kind": "Grouping" }
+  ],
+  "dataViewMappings": [
+    {
+      "table": {
+        "rows": {
+          "select": [
+            { "for": { "in": "documento" } },
+            { "for": { "in": "tipoPersonal" } },
+            { "for": { "in": "area" } },
+            { "for": { "in": "cargo" } },
+            { "for": { "in": "profesion" } },
+            { "for": { "in": "nombre" } },
+            { "for": { "in": "monto" } }
+          ],
+          "dataReductionAlgorithm": {
+            "top": {
+              "count": 30000
+            }
+          }
+        }
+      }
+    }
+  ],
+  "objects": {}
+}
