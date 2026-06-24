@@ -4,6 +4,7 @@ import { fmt, pct } from "../utils/format";
 import { DetailColumn } from "../services/DataService";
 import { DetailPanel } from "./DetailPanel";
 import { cleanTsvValue, runCopyAction } from "../utils/clipboard";
+import { TableSettingsService } from "../services/TableSettingsService";
 
 export class DistributionTable {
     public static render(
@@ -17,7 +18,8 @@ export class DistributionTable {
         detailPage: number,
         detailSortField: string,
         detailSortDirection: "asc" | "desc",
-        activeRowFilter: { mode: Mode; value: string } | null
+        activeRowFilter: { mode: Mode; value: string } | null,
+        tableSettingsService: TableSettingsService
     ): HTMLElement {
         const section = document.createElement("section");
         section.className = "analysis-section";
@@ -55,7 +57,15 @@ export class DistributionTable {
         section.appendChild(toolbarPanel);
 
         if (showDetailView) {
-            section.appendChild(DetailPanel.render(rows, detailColumns, detailSearch, detailPage, detailSortField, detailSortDirection));
+            section.appendChild(DetailPanel.render(
+                rows,
+                detailColumns,
+                detailSearch,
+                detailPage,
+                detailSortField,
+                detailSortDirection,
+                tableSettingsService
+            ));
         } else {
             section.appendChild(this.renderContent(groups, mode, showBreakdown, activeRowFilter));
         }

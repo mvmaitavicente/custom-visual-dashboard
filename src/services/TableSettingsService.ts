@@ -1,4 +1,20 @@
+import powerbi from "powerbi-visuals-api";
+
+import DataViewObjects = powerbi.DataViewObjects;
+import IVisualHost = powerbi.extensibility.visual.IVisualHost;
+
 export interface TableSettings {
+    visibleColumns: string[];
+    columnOrder: string[];
+    sortColumn?: string;
+    sortDirection?: "asc" | "desc";
+    savedViews?: SavedTableView[];
+    activeViewId?: string;
+}
+
+export interface SavedTableView {
+    id: string;
+    name: string;
     visibleColumns: string[];
     columnOrder: string[];
     sortColumn?: string;
@@ -9,86 +25,129 @@ type ColumnWithKey = {
     key: string;
 };
 
+const OBJECT_NAME = "tableSettings";
+const PROPERTY_NAME = "state";
 const STORAGE_KEY = "cardCarouselPro1234567890.detailTableSettings.v1";
 const LEGACY_STORAGE_KEY = "cardCarouselPro1234567890.detailColumns.v1";
 
 export class TableSettingsService {
-    private static memorySettings: TableSettings | null = null;
+    private settings: TableSettings | null = null;
+    private synchronized: boolean = false;
 
-    public static load(): TableSettings | null {
-        try {
-            const raw = localStorage.getItem(STORAGE_KEY);
-            if (raw) {
-                const settings = this.parse(raw);
-                if (settings) {
-                    this.memorySettings = settings;
-                    return settings;
-                }
+    constructor(private readonly host: IVisualHost) {}
+
+    public synchronize(objects?: DataViewObjects): TableSettings | null {
+        const persistedState = objects?.[OBJECT_NAME]?.[PROPERTY_NAME];
+
+        if (typeof persistedState === "string" && persistedState) {
+            const persistedSettings = this.parse(persistedState);
+            if (persistedSettings) {
+                this.settings = persistedSettings;
+                this.synchronized = true;
+                return this.settings;
             }
-
-            const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
-            if (legacyRaw) {
-                const legacy = JSON.parse(legacyRaw) as {
-                    visibleKeys?: unknown;
-                    order?: unknown;
-                };
-
-                if (Array.isArray(legacy.visibleKeys) && Array.isArray(legacy.order)) {
-                    const settings: TableSettings = {
-                        visibleColumns: legacy.visibleKeys.filter(
-                            (key): key is string => typeof key === "string"
-                        ),
-                        columnOrder: legacy.order.filter(
-                            (key): key is string => typeof key === "string"
-                        )
-                    };
-                    this.save(settings);
-                    localStorage.removeItem(LEGACY_STORAGE_KEY);
-                    return settings;
-                }
-            }
-        } catch {
-            return this.memorySettings;
         }
 
-        return this.memorySettings;
+        if (!this.synchronized) {
+            const localSettings = this.loadLocal();
+            this.settings = localSettings;
+            this.synchronized = true;
+
+            if (localSettings) {
+                this.persist(localSettings);
+                this.clearLocal();
+            }
+        }
+
+        return this.settings;
     }
 
-    public static save(settings: TableSettings): void {
-        const normalized: TableSettings = {
+    public load(): TableSettings | null {
+        return this.settings;
+    }
+
+    public save(settings: TableSettings): void {
+        const normalized = this.normalize({
+            ...settings,
+            savedViews: settings.savedViews ?? this.settings?.savedViews,
+            activeViewId: settings.activeViewId
+        });
+        this.settings = normalized;
+        this.synchronized = true;
+        this.persist(normalized);
+    }
+
+    public getSavedViews(): SavedTableView[] {
+        return [...(this.settings?.savedViews || [])];
+    }
+
+    public saveNamedView(name: string, settings: TableSettings): SavedTableView | null {
+        const cleanName = name.trim();
+        if (!cleanName) return null;
+
+        const savedViews = this.getSavedViews();
+        const existingIndex = savedViews.findIndex(
+            view => view.name.toLocaleLowerCase() === cleanName.toLocaleLowerCase()
+        );
+        const existing = existingIndex >= 0 ? savedViews[existingIndex] : null;
+        const view: SavedTableView = {
+            id: existing?.id || this.createViewId(),
+            name: cleanName,
             visibleColumns: this.uniqueStrings(settings.visibleColumns),
             columnOrder: this.uniqueStrings(settings.columnOrder),
-            sortColumn: typeof settings.sortColumn === "string"
-                ? settings.sortColumn
-                : undefined,
-            sortDirection: settings.sortDirection === "asc" || settings.sortDirection === "desc"
-                ? settings.sortDirection
-                : undefined
+            sortColumn: settings.sortColumn,
+            sortDirection: settings.sortDirection
         };
 
-        this.memorySettings = normalized;
-
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-        } catch {
-            // Keep settings for the current session when storage is unavailable.
+        if (existingIndex >= 0) {
+            savedViews.splice(existingIndex, 1, view);
+        } else {
+            savedViews.push(view);
         }
+
+        this.save({
+            ...settings,
+            savedViews,
+            activeViewId: view.id
+        });
+
+        return view;
     }
 
-    public static clear(): void {
-        this.memorySettings = null;
+    public applyNamedView(viewId: string): TableSettings | null {
+        const view = this.getSavedViews().find(item => item.id === viewId);
+        if (!view) return null;
 
-        try {
-            localStorage.removeItem(STORAGE_KEY);
-            localStorage.removeItem(LEGACY_STORAGE_KEY);
-        } catch {
-            // Nothing else is required when storage is unavailable.
-        }
+        const nextSettings: TableSettings = {
+            visibleColumns: view.visibleColumns,
+            columnOrder: view.columnOrder,
+            sortColumn: view.sortColumn,
+            sortDirection: view.sortDirection,
+            savedViews: this.getSavedViews(),
+            activeViewId: view.id
+        };
+
+        this.save(nextSettings);
+        return this.settings;
     }
 
-    public static apply<T extends ColumnWithKey>(
+    public clear(): void {
+        this.settings = null;
+        this.synchronized = true;
+        this.clearLocal();
+
+        this.host.persistProperties({
+            removeObject: [{
+                objectName: OBJECT_NAME,
+                properties: {},
+                selector: null
+            }]
+        });
+    }
+
+    public apply<T extends ColumnWithKey>(
         columns: T[],
-        settings: TableSettings | null = this.load(),
+        settings: TableSettings | null = this.settings,
         visibleOnly: boolean = true
     ): T[] {
         if (!settings) return [...columns];
@@ -111,29 +170,140 @@ export class TableSettingsService {
         return ordered.filter(column => visibleKeys.has(column.key));
     }
 
-    private static parse(raw: string): TableSettings | null {
-        const parsed = JSON.parse(raw) as Partial<TableSettings>;
-        if (!Array.isArray(parsed.visibleColumns) || !Array.isArray(parsed.columnOrder)) {
+    private persist(settings: TableSettings): void {
+        this.host.persistProperties({
+            merge: [{
+                objectName: OBJECT_NAME,
+                properties: {
+                    [PROPERTY_NAME]: JSON.stringify(settings)
+                },
+                selector: null
+            }]
+        });
+    }
+
+    private loadLocal(): TableSettings | null {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (raw) {
+                const settings = this.parse(raw);
+                if (settings) return settings;
+            }
+
+            const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+            if (!legacyRaw) return null;
+
+            const legacy = JSON.parse(legacyRaw) as {
+                visibleKeys?: unknown;
+                order?: unknown;
+            };
+
+            if (!Array.isArray(legacy.visibleKeys) || !Array.isArray(legacy.order)) {
+                return null;
+            }
+
+            return this.normalize({
+                visibleColumns: legacy.visibleKeys.filter(
+                    (key): key is string => typeof key === "string"
+                ),
+                columnOrder: legacy.order.filter(
+                    (key): key is string => typeof key === "string"
+                )
+            });
+        } catch {
             return null;
         }
+    }
 
+    private clearLocal(): void {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+        } catch {
+            // Persisted PBIX settings remain the source of truth.
+        }
+    }
+
+    private parse(raw: string): TableSettings | null {
+        try {
+            const parsed = JSON.parse(raw) as Partial<TableSettings>;
+            if (!Array.isArray(parsed.visibleColumns) || !Array.isArray(parsed.columnOrder)) {
+                return null;
+            }
+
+            return this.normalize({
+                visibleColumns: parsed.visibleColumns.filter(
+                    (key): key is string => typeof key === "string"
+                ),
+                columnOrder: parsed.columnOrder.filter(
+                    (key): key is string => typeof key === "string"
+                ),
+                sortColumn: typeof parsed.sortColumn === "string"
+                    ? parsed.sortColumn
+                    : undefined,
+                sortDirection: parsed.sortDirection === "asc" || parsed.sortDirection === "desc"
+                    ? parsed.sortDirection
+                    : undefined,
+                savedViews: Array.isArray(parsed.savedViews)
+                    ? parsed.savedViews
+                    : undefined,
+                activeViewId: typeof parsed.activeViewId === "string"
+                    ? parsed.activeViewId
+                    : undefined
+            });
+        } catch {
+            return null;
+        }
+    }
+
+    private normalize(settings: TableSettings): TableSettings {
         return {
-            visibleColumns: parsed.visibleColumns.filter(
-                (key): key is string => typeof key === "string"
-            ),
-            columnOrder: parsed.columnOrder.filter(
-                (key): key is string => typeof key === "string"
-            ),
-            sortColumn: typeof parsed.sortColumn === "string"
-                ? parsed.sortColumn
+            visibleColumns: this.uniqueStrings(settings.visibleColumns),
+            columnOrder: this.uniqueStrings(settings.columnOrder),
+            sortColumn: typeof settings.sortColumn === "string"
+                ? settings.sortColumn
                 : undefined,
-            sortDirection: parsed.sortDirection === "asc" || parsed.sortDirection === "desc"
-                ? parsed.sortDirection
+            sortDirection: settings.sortDirection === "asc" || settings.sortDirection === "desc"
+                ? settings.sortDirection
+                : undefined,
+            savedViews: this.normalizeSavedViews(settings.savedViews),
+            activeViewId: typeof settings.activeViewId === "string"
+                ? settings.activeViewId
                 : undefined
         };
     }
 
-    private static uniqueStrings(values: string[]): string[] {
+    private normalizeSavedViews(views: SavedTableView[] | undefined): SavedTableView[] {
+        if (!Array.isArray(views)) return [];
+
+        return views
+            .filter(view => view && typeof view.id === "string" && typeof view.name === "string")
+            .map(view => ({
+                id: view.id,
+                name: view.name.trim(),
+                visibleColumns: this.uniqueStrings(view.visibleColumns || []),
+                columnOrder: this.uniqueStrings(view.columnOrder || []),
+                sortColumn: typeof view.sortColumn === "string"
+                    ? view.sortColumn
+                    : undefined,
+                sortDirection: view.sortDirection === "asc" || view.sortDirection === "desc"
+                    ? view.sortDirection
+                    : undefined
+            }))
+            .filter(view => Boolean(view.name));
+    }
+
+    private createViewId(): string {
+        const randomValues = new Uint32Array(2);
+        window.crypto.getRandomValues(randomValues);
+        const suffix = Array.from(randomValues)
+            .map(value => value.toString(36))
+            .join("");
+
+        return `view_${Date.now()}_${suffix}`;
+    }
+
+    private uniqueStrings(values: string[]): string[] {
         return Array.from(new Set(values.filter(value => typeof value === "string")));
     }
 }

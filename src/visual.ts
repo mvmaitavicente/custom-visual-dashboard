@@ -24,6 +24,7 @@ type KpiKey = "personal" | "cas" | "locadores" | "general" | "especializado";
 export class Visual implements IVisual {
     private readonly host: IVisualHost;
     private readonly selectionManager: ISelectionManager;
+    private readonly tableSettingsService: TableSettingsService;
 
     private root: HTMLElement;
     private rows: RowData[] = [];
@@ -47,6 +48,7 @@ export class Visual implements IVisual {
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
         this.selectionManager = options.host.createSelectionManager();
+        this.tableSettingsService = new TableSettingsService(options.host);
 
         this.root = document.createElement("div");
         this.root.className = "pd-root";
@@ -67,6 +69,7 @@ export class Visual implements IVisual {
 
         this.rows = DataService.parse(dataView);
         this.detailColumns = DataService.getDetailColumns(dataView);
+        this.tableSettingsService.synchronize(dataView.metadata?.objects);
         this.loadDetailSettings();
 
         this.rows.forEach((row, rowIndex) => {
@@ -134,7 +137,8 @@ export class Visual implements IVisual {
             this.detailPage,
             this.detailSortField,
             this.detailSortDirection,
-            this.activeRowFilter
+            this.activeRowFilter,
+            this.tableSettingsService
         );
 
         page.appendChild(kpiSection);
@@ -255,8 +259,20 @@ export class Visual implements IVisual {
             this.render();
         });
 
-        this.root.querySelector(".detail-section")?.addEventListener("detailcolumnschange", () => {
+        this.root.querySelector(".detail-section")?.addEventListener("detailsettingschange", event => {
             if (!this.showDetailView) return;
+            const detail = (event as CustomEvent<{
+                sortColumn?: string;
+                sortDirection?: "asc" | "desc";
+            }>).detail;
+
+            if (detail?.sortColumn) {
+                this.detailSortField = detail.sortColumn;
+            }
+            if (detail?.sortDirection) {
+                this.detailSortDirection = detail.sortDirection;
+            }
+
             this.detailPage = 1;
             this.render();
         });
@@ -274,7 +290,7 @@ export class Visual implements IVisual {
     private loadDetailSettings(): void {
         if (this.detailSettingsLoaded) return;
 
-        const settings = TableSettingsService.load();
+        const settings = this.tableSettingsService.load();
         const availableColumnKeys = new Set(this.detailColumns.map(column => column.key));
 
         if (settings?.sortColumn && availableColumnKeys.has(settings.sortColumn)) {
@@ -288,10 +304,10 @@ export class Visual implements IVisual {
     }
 
     private saveDetailSortSettings(): void {
-        const current = TableSettingsService.load();
+        const current = this.tableSettingsService.load();
         const columnKeys = this.detailColumns.map(column => column.key);
 
-        TableSettingsService.save({
+        this.tableSettingsService.save({
             visibleColumns: current?.visibleColumns || columnKeys,
             columnOrder: current?.columnOrder || columnKeys,
             sortColumn: this.detailSortField,

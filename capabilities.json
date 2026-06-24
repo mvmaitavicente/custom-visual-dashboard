@@ -43,5 +43,17 @@
       }
     }
   ],
-  "objects": {}
+  "objects": {
+    "tableSettings": {
+      "displayName": "Configuración de tabla",
+      "properties": {
+        "state": {
+          "displayName": "Estado de la tabla",
+          "type": {
+            "text": true
+          }
+        }
+      }
+    }
+  }
 }

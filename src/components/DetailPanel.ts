@@ -13,7 +13,8 @@ export class DetailPanel {
         search: string,
         page: number,
         sortField: string,
-        sortDirection: "asc" | "desc"
+        sortDirection: "asc" | "desc",
+        tableSettingsService: TableSettingsService
     ): HTMLElement {
         const query = search.trim().toLowerCase();
         const filtered = rows.filter(row => {
@@ -42,7 +43,10 @@ export class DetailPanel {
                     .filter(key => key !== "selectionId")
                     .map(key => ({ label: key.toUpperCase(), key } as any))
         );
-        const visibleColumns = this.resolveVisibleColumns(availableColumns);
+        const visibleColumns = this.resolveVisibleColumns(
+            availableColumns,
+            tableSettingsService
+        );
 
         const section = document.createElement("section");
         section.className = "detail-section";
@@ -90,7 +94,12 @@ export class DetailPanel {
         configButton.className = "column-config-btn";
         configButton.textContent = "⚙ Configurar columnas";
         configButton.addEventListener("click", () => {
-            this.openColumnConfig(section, availableColumns, visibleColumns);
+            this.openColumnConfig(
+                section,
+                availableColumns,
+                visibleColumns,
+                tableSettingsService
+            );
         });
 
         toolbarActions.appendChild(input);
@@ -220,19 +229,23 @@ export class DetailPanel {
         return section;
     }
 
-    private static resolveVisibleColumns(columns: DetailColumn[]): DetailColumn[] {
-        return TableSettingsService.apply(columns);
+    private static resolveVisibleColumns(
+        columns: DetailColumn[],
+        tableSettingsService: TableSettingsService
+    ): DetailColumn[] {
+        return tableSettingsService.apply(columns);
     }
 
     private static openColumnConfig(
         section: HTMLElement,
         availableColumns: DetailColumn[],
-        visibleColumns: DetailColumn[]
+        visibleColumns: DetailColumn[],
+        tableSettingsService: TableSettingsService
     ): void {
         section.querySelector(".column-config-backdrop")?.remove();
 
-        const settings = TableSettingsService.load();
-        const orderedColumns = TableSettingsService.apply(
+        const settings = tableSettingsService.load();
+        const orderedColumns = tableSettingsService.apply(
             availableColumns,
             settings,
             false
@@ -297,6 +310,62 @@ export class DetailPanel {
         const footer = document.createElement("div");
         footer.className = "column-config-footer";
 
+        const savedViewsSection = document.createElement("div");
+        savedViewsSection.className = "column-config-saved-views";
+
+        const savedViewsTitle = document.createElement("strong");
+        savedViewsTitle.textContent = "Vistas guardadas";
+
+        const savedViewsRow = document.createElement("div");
+        savedViewsRow.className = "column-config-view-row";
+
+        const savedViewsSelect = document.createElement("select");
+        savedViewsSelect.className = "column-config-view-select";
+        this.populateSavedViewsSelect(
+            savedViewsSelect,
+            tableSettingsService,
+            settings?.activeViewId
+        );
+
+        const loadViewButton = document.createElement("button");
+        loadViewButton.type = "button";
+        loadViewButton.className = "column-config-load-view";
+        loadViewButton.textContent = "Cargar";
+        loadViewButton.disabled = !savedViewsSelect.value;
+
+        savedViewsRow.appendChild(savedViewsSelect);
+        savedViewsRow.appendChild(loadViewButton);
+
+        const saveViewLabel = document.createElement("label");
+        saveViewLabel.textContent = "Guardar vista actual";
+
+        const saveViewRow = document.createElement("div");
+        saveViewRow.className = "column-config-view-row";
+
+        const viewNameInput = document.createElement("input");
+        viewNameInput.type = "text";
+        viewNameInput.className = "column-config-view-name";
+        viewNameInput.placeholder = "Nombre de la vista";
+        viewNameInput.maxLength = 60;
+
+        const saveViewButton = document.createElement("button");
+        saveViewButton.type = "button";
+        saveViewButton.className = "column-config-save-view";
+        saveViewButton.textContent = "Guardar";
+
+        const savedViewStatus = document.createElement("div");
+        savedViewStatus.className = "column-config-save-status";
+        savedViewStatus.hidden = true;
+
+        saveViewRow.appendChild(viewNameInput);
+        saveViewRow.appendChild(saveViewButton);
+
+        savedViewsSection.appendChild(savedViewsTitle);
+        savedViewsSection.appendChild(savedViewsRow);
+        savedViewsSection.appendChild(saveViewLabel);
+        savedViewsSection.appendChild(saveViewRow);
+        savedViewsSection.appendChild(savedViewStatus);
+
         const cancelButton = document.createElement("button");
         cancelButton.type = "button";
         cancelButton.className = "column-config-cancel";
@@ -314,6 +383,7 @@ export class DetailPanel {
         panel.appendChild(search);
         panel.appendChild(bulkActions);
         panel.appendChild(list);
+        panel.appendChild(savedViewsSection);
         panel.appendChild(footer);
         backdrop.appendChild(panel);
         section.appendChild(backdrop);
@@ -352,24 +422,107 @@ export class DetailPanel {
 
         this.bindColumnDragAndDrop(list);
 
-        applyButton.addEventListener("click", () => {
-            const items = Array.from(list.querySelectorAll<HTMLElement>(".column-config-item"));
-            const currentSettings = TableSettingsService.load();
+        savedViewsSelect.addEventListener("change", () => {
+            loadViewButton.disabled = !savedViewsSelect.value;
+        });
 
-            TableSettingsService.save({
-                columnOrder: items.map(item => item.dataset.columnKey || "").filter(Boolean),
-                visibleColumns: items
-                    .filter(item => item.querySelector<HTMLInputElement>("input[type='checkbox']")?.checked)
-                    .map(item => item.dataset.columnKey || "")
-                    .filter(Boolean),
-                sortColumn: currentSettings?.sortColumn,
-                sortDirection: currentSettings?.sortDirection
-            });
+        loadViewButton.addEventListener("click", () => {
+            const loadedSettings = tableSettingsService.applyNamedView(savedViewsSelect.value);
+            if (!loadedSettings) return;
+
             close();
-            section.dispatchEvent(new CustomEvent("detailcolumnschange", { bubbles: true }));
+            section.dispatchEvent(new CustomEvent("detailsettingschange", {
+                bubbles: true,
+                detail: {
+                    sortColumn: loadedSettings.sortColumn,
+                    sortDirection: loadedSettings.sortDirection
+                }
+            }));
+        });
+
+        saveViewButton.addEventListener("click", () => {
+            const currentSettings = tableSettingsService.load();
+            const viewSettings = this.readColumnSettings(
+                list,
+                currentSettings?.sortColumn,
+                currentSettings?.sortDirection
+            );
+            const savedView = tableSettingsService.saveNamedView(
+                viewNameInput.value,
+                viewSettings
+            );
+
+            if (!savedView) {
+                savedViewStatus.hidden = false;
+                savedViewStatus.classList.add("error");
+                savedViewStatus.textContent = "Ingresa un nombre para la vista.";
+                viewNameInput.focus();
+                return;
+            }
+
+            savedViewStatus.hidden = false;
+            savedViewStatus.classList.remove("error");
+            savedViewStatus.textContent = `Vista "${savedView.name}" guardada.`;
+            this.populateSavedViewsSelect(
+                savedViewsSelect,
+                tableSettingsService,
+                savedView.id
+            );
+            loadViewButton.disabled = false;
+            viewNameInput.value = "";
+        });
+
+        applyButton.addEventListener("click", () => {
+            const currentSettings = tableSettingsService.load();
+            tableSettingsService.save(this.readColumnSettings(
+                list,
+                currentSettings?.sortColumn,
+                currentSettings?.sortDirection
+            ));
+            close();
+            section.dispatchEvent(new CustomEvent("detailsettingschange", { bubbles: true }));
         });
 
         search.focus();
+    }
+
+    private static readColumnSettings(
+        list: HTMLElement,
+        sortColumn?: string,
+        sortDirection?: "asc" | "desc"
+    ) {
+        const items = Array.from(list.querySelectorAll<HTMLElement>(".column-config-item"));
+
+        return {
+            columnOrder: items.map(item => item.dataset.columnKey || "").filter(Boolean),
+            visibleColumns: items
+                .filter(item => item.querySelector<HTMLInputElement>("input[type='checkbox']")?.checked)
+                .map(item => item.dataset.columnKey || "")
+                .filter(Boolean),
+            sortColumn,
+            sortDirection
+        };
+    }
+
+    private static populateSavedViewsSelect(
+        select: HTMLSelectElement,
+        tableSettingsService: TableSettingsService,
+        selectedViewId?: string
+    ): void {
+        select.textContent = "";
+
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = "Seleccionar vista guardada";
+        select.appendChild(placeholder);
+
+        tableSettingsService.getSavedViews().forEach(view => {
+            const option = document.createElement("option");
+            option.value = view.id;
+            option.textContent = view.name;
+            option.selected = view.id === selectedViewId;
+            select.appendChild(option);
+        });
     }
 
     private static createColumnConfigItem(
