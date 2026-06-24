@@ -201,21 +201,15 @@ export class DataService {
     }
 
     private static readonly DETAIL_COLUMN_REQUESTS = [
-        { label: "Tipo Personal", keywords: ["tipo personal", "tipo_personal", "tipo persona", "tipo", "personal", "role", "rol"], role: "tipoPersonal" },
-        { label: "Área", keywords: ["área", "area"], role: "area" },
+        { label: "Tipo Personal", keywords: ["tipo personal", "tipo_personal", "tipo persona", "tipo_personal", "tipo", "personal", "role", "rol"], role: "tipoPersonal" },
         { label: "Nro Documento", keywords: ["nro documento", "nro_documento", "documento", "dni", "id", "numero documento"], role: "documento" },
         { label: "Nombres Completos", keywords: ["nombres completos", "nombre completo", "nombre", "nombres"], role: "nombre" },
         { label: "Año Ingreso", keywords: ["año ingreso", "anio ingreso", "anio", "año"], role: "anioIngreso" },
         { label: "Fecha Inicio OS", keywords: ["fecha inicio os", "fecha inicio", "inicio os", "fecha inicio", "inicio"], role: "fechaInicio" },
         { label: "Fecha Fin OS", keywords: ["fecha fin os", "fecha fin", "fin os", "fecha fin", "fin"], role: "fechaFin" },
         { label: "S/.", keywords: ["monto locador", "monto", "s/", "s/.", "monto contratado", "valor"], role: "monto" },
-
-        { label: "Grado Académico", keywords: ["grado academico", "grado académico", "titulo academico", "título académico", "titulo profesional", "título profesional", "tituloacademico", "tituloprofesional"], role: "tituloProfesional" },
-
-        { label: "Profesión", keywords: ["profesión", "profesion", "profesion locador", "profesional"], role: "profesion" },
-
-        { label: "Posgrado", keywords: ["posgrado", "postgrado", "maestria", "maestría", "doctorado", "maestria doctorado"], role: "maestriaDoctorado" },
-
+        { label: "Profesión", keywords: ["profesión", "profesion", "profesion locador", "profesion", "profesional"], role: "profesion" },
+        { label: "Posgrado", keywords: ["posgrado", "titulo profesional", "titulo", "postgrado", "maestria", "doctorado"], role: "tituloProfesional" },
         { label: "Diplomados", keywords: ["diplomados", "diploma"], role: "diplomados" },
         { label: "Cursos", keywords: ["cursos", "curso"], role: "cursos" },
         { label: "Actividad Relevante", keywords: ["actividad relevante", "actividad"], role: "actividadRelevante" },

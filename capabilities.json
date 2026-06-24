@@ -4,10 +4,17 @@
     { "displayName": "Documento", "name": "documento", "kind": "Grouping" },
     { "displayName": "Tipo Personal", "name": "tipoPersonal", "kind": "Grouping" },
     { "displayName": "Área", "name": "area", "kind": "Grouping" },
-    { "displayName": "Cargo CAS", "name": "cargo", "kind": "Grouping" },
+    { "displayName": "Equipo Trabajo", "name": "equipoTrabajo", "kind": "Grouping" },
+    { "displayName": "Cargo", "name": "cargo", "kind": "Grouping" },
+    { "displayName": "Grado Académico", "name": "tituloProfesional", "kind": "Grouping" },
+    { "displayName": "Posgrado", "name": "maestriaDoctorado", "kind": "Grouping" },
     { "displayName": "Profesión Locador", "name": "profesion", "kind": "Grouping" },
     { "displayName": "Nombre", "name": "nombre", "kind": "Grouping" },
-    { "displayName": "Monto Locador", "name": "monto", "kind": "Grouping" }
+    { "displayName": "Monto Locador", "name": "monto", "kind": "Grouping" },
+    { "displayName": "Fecha Inicio", "name": "fechaInicio", "kind": "Grouping" },
+    { "displayName": "Fecha Fin", "name": "fechaFin", "kind": "Grouping" },
+    { "displayName": "Año Ingreso", "name": "anioIngreso", "kind": "Grouping" },
+    { "displayName": "Detalle - campos libres", "name": "detailFields", "kind": "Grouping" }
   ],
   "dataViewMappings": [
     {
@@ -17,15 +24,20 @@
             { "for": { "in": "documento" } },
             { "for": { "in": "tipoPersonal" } },
             { "for": { "in": "area" } },
+            { "for": { "in": "equipoTrabajo" } },
             { "for": { "in": "cargo" } },
+            { "for": { "in": "tituloProfesional" } },
+            { "for": { "in": "maestriaDoctorado" } },
             { "for": { "in": "profesion" } },
             { "for": { "in": "nombre" } },
-            { "for": { "in": "monto" } }
+            { "for": { "in": "monto" } },
+            { "for": { "in": "fechaInicio" } },
+            { "for": { "in": "fechaFin" } },
+            { "for": { "in": "anioIngreso" } },
+            { "for": { "in": "detailFields" } }
           ],
           "dataReductionAlgorithm": {
-            "top": {
-              "count": 30000
-            }
+            "top": { "count": 30000 }
           }
         }
       }

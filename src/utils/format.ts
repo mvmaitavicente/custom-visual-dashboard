@@ -34,3 +34,15 @@ export function escapeAttr(value: string): string {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
 }
+
+export function formatDate(value: unknown): string {
+    if (value === null || value === undefined || value === "") return "";
+    const raw = String(value).trim();
+    const date = new Date(raw);
+    if (isNaN(date.getTime())) return raw;
+
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = String(date.getFullYear());
+    return `${day}/${month}/${year}`;
+}

@@ -16,8 +16,10 @@ export interface GroupRow {
     locadorTotalCount: number;
     locadorGeneralCount: number;
     locadorEspecializadoCount: number;
+    totalCount: number;
 
     locadorTotalMonto: number;
     locadorGeneralMonto: number;
     locadorEspecializadoMonto: number;
+    totalMonto: number;
 }

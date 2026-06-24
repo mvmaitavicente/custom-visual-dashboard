@@ -1,5 +1,5 @@
 import { RowData } from "../models/RowData";
-import { escapeAttr, fmt } from "../utils/format";
+import { escapeAttr, fmt, formatDate } from "../utils/format";
 import { GroupService } from "../services/GroupService";
 
 export class DetailModal {
@@ -21,6 +21,10 @@ export class DetailModal {
                 r.area,
                 r.cargo,
                 r.profesion,
+                r.equipoTrabajo,
+                r.fechaInicio,
+                r.fechaFin,
+                r.anioIngreso,
                 r.unidadOrganica
             ].join(" ").toLowerCase().includes(q)
         );
@@ -55,8 +59,12 @@ export class DetailModal {
                                     <th>Nombre</th>
                                     <th>Tipo Personal</th>
                                     <th>Área</th>
+                                    <th>Equipo Trabajo</th>
                                     <th>Cargo</th>
                                     <th>Profesión</th>
+                                    <th>Fecha Inicio</th>
+                                    <th>Fecha Fin</th>
+                                    <th>Año Ingreso</th>
                                     <th>Unidad Orgánica</th>
                                     <th>Monto</th>
                                 </tr>
@@ -69,8 +77,12 @@ export class DetailModal {
                                         <td class="strong">${r.nombre}</td>
                                         <td>${r.tipoPersonal}</td>
                                         <td>${r.area}</td>
+                                        <td>${r.equipoTrabajo}</td>
                                         <td>${r.cargo}</td>
                                         <td>${r.profesion}</td>
+                                        <td>${formatDate(r.fechaInicio)}</td>
+                                        <td>${formatDate(r.fechaFin)}</td>
+                                        <td>${r.anioIngreso}</td>
                                         <td>${r.unidadOrganica}</td>
                                         <td class="money">${GroupService.isCas(r) ? "-" : "S/ " + fmt(r.monto)}</td>
                                     </tr>
