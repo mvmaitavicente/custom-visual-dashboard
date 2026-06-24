@@ -17,6 +17,7 @@ import { GroupService } from "./services/GroupService";
 import { KpiSection } from "./components/KpiSection";
 import { DistributionTable } from "./components/DistributionTable";
 import { Mode } from "./models/GroupRow";
+import { TableSettingsService } from "./services/TableSettingsService";
 
 type KpiKey = "personal" | "cas" | "locadores" | "general" | "especializado";
 
@@ -41,6 +42,7 @@ export class Visual implements IVisual {
     private detailSearch: string = "";
     private detailSortField: string = "nombre";
     private detailSortDirection: "asc" | "desc" = "asc";
+    private detailSettingsLoaded: boolean = false;
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
@@ -65,6 +67,7 @@ export class Visual implements IVisual {
 
         this.rows = DataService.parse(dataView);
         this.detailColumns = DataService.getDetailColumns(dataView);
+        this.loadDetailSettings();
 
         this.rows.forEach((row, rowIndex) => {
             row.selectionId = this.host
@@ -206,6 +209,7 @@ export class Visual implements IVisual {
                         this.detailSortField = field;
                         this.detailSortDirection = "asc";
                     }
+                    this.saveDetailSortSettings();
                 } else {
                     if (this.sortField === field) {
                         this.sortDirection = this.sortDirection === "asc" ? "desc" : "asc";
@@ -250,6 +254,12 @@ export class Visual implements IVisual {
             this.detailPage++;
             this.render();
         });
+
+        this.root.querySelector(".detail-section")?.addEventListener("detailcolumnschange", () => {
+            if (!this.showDetailView) return;
+            this.detailPage = 1;
+            this.render();
+        });
     }
 
     private bindFilters(): void {
@@ -259,8 +269,34 @@ export class Visual implements IVisual {
     private resetDetailState(): void {
         this.detailPage = 1;
         this.detailSearch = "";
-        this.detailSortField = "nombre";
-        this.detailSortDirection = "asc";
+    }
+
+    private loadDetailSettings(): void {
+        if (this.detailSettingsLoaded) return;
+
+        const settings = TableSettingsService.load();
+        const availableColumnKeys = new Set(this.detailColumns.map(column => column.key));
+
+        if (settings?.sortColumn && availableColumnKeys.has(settings.sortColumn)) {
+            this.detailSortField = settings.sortColumn;
+        }
+        if (settings?.sortDirection) {
+            this.detailSortDirection = settings.sortDirection;
+        }
+
+        this.detailSettingsLoaded = true;
+    }
+
+    private saveDetailSortSettings(): void {
+        const current = TableSettingsService.load();
+        const columnKeys = this.detailColumns.map(column => column.key);
+
+        TableSettingsService.save({
+            visibleColumns: current?.visibleColumns || columnKeys,
+            columnOrder: current?.columnOrder || columnKeys,
+            sortColumn: this.detailSortField,
+            sortDirection: this.detailSortDirection
+        });
     }
 
     private sortGroups(groups: GroupRow[]): GroupRow[] {

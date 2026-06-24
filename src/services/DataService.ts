@@ -255,7 +255,12 @@ export class DataService {
             return [{ key: found.key, label: request.label }];
         });
 
-        return matched;
+        const matchedKeys = new Set(matched.map(column => column.key));
+        const remaining = sourceColumns
+            .filter(column => !matchedKeys.has(column.key))
+            .map(column => ({ key: column.key, label: column.label }));
+
+        return [...matched, ...remaining];
     }
 
     private static isUnidadOrg(label: string): boolean {

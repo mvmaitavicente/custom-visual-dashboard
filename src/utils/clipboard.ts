@@ -35,14 +35,17 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 
 export async function runCopyAction(
     text: string,
-    button: HTMLButtonElement
+    button: HTMLButtonElement,
+    messages: { success?: string; error?: string } = {}
 ): Promise<void> {
     const originalText = button.textContent || "Copiar";
     const copied = await copyTextToClipboard(text);
 
     button.classList.toggle("copied", copied);
     button.classList.toggle("copy-error", !copied);
-    button.textContent = copied ? "Copiado" : "Error";
+    button.textContent = copied
+        ? messages.success || "Copiado"
+        : messages.error || "Error";
 
     window.setTimeout(() => {
         button.classList.remove("copied", "copy-error");

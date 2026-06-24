@@ -1,5 +1,6 @@
 import { RowData } from "../models/RowData";
 import { DetailColumn } from "../services/DataService";
+import { TableSettingsService } from "../services/TableSettingsService";
 import { fmt, formatDate } from "../utils/format";
 import { cleanTsvValue, runCopyAction } from "../utils/clipboard";
 
@@ -34,13 +35,14 @@ export class DetailPanel {
         const firstIndex = (safePage - 1) * PAGE_SIZE;
         const pageRows = sorted.slice(firstIndex, firstIndex + PAGE_SIZE);
 
-        const visibleColumns = this.addGradoAcademicoColumn(
+        const availableColumns = this.addGradoAcademicoColumn(
             columns.length > 0
                 ? columns.filter(col => col.label.toLowerCase() !== "unidad orgánica")
                 : Object.keys(rows[0] || {})
                     .filter(key => key !== "selectionId")
                     .map(key => ({ label: key.toUpperCase(), key } as any))
         );
+        const visibleColumns = this.resolveVisibleColumns(availableColumns);
 
         const section = document.createElement("section");
         section.className = "detail-section";
@@ -74,14 +76,26 @@ export class DetailPanel {
         const copyButton = document.createElement("button");
         copyButton.type = "button";
         copyButton.className = "copy-table-btn detail-copy-btn";
-        copyButton.textContent = "Copiar";
+        copyButton.textContent = "📋 Copiar";
         copyButton.addEventListener("click", async () => {
             const tsv = this.buildDetailTsv(sorted, visibleColumns);
-            await runCopyAction(tsv, copyButton);
+            await runCopyAction(tsv, copyButton, {
+                success: "✓ Copiado",
+                error: "No se pudo copiar"
+            });
+        });
+
+        const configButton = document.createElement("button");
+        configButton.type = "button";
+        configButton.className = "column-config-btn";
+        configButton.textContent = "⚙ Configurar columnas";
+        configButton.addEventListener("click", () => {
+            this.openColumnConfig(section, availableColumns, visibleColumns);
         });
 
         toolbarActions.appendChild(input);
         toolbarActions.appendChild(copyButton);
+        toolbarActions.appendChild(configButton);
 
         toolbar.appendChild(toolbarInfo);
         toolbar.appendChild(toolbarActions);
@@ -103,6 +117,10 @@ export class DetailPanel {
         visibleColumns.forEach(col => {
             const th = document.createElement("th");
             th.className = "sticky sortable";
+            const isSorted = col.key === sortField;
+            if (isSorted) {
+                th.classList.add("sorted-column");
+            }
 
             const label = String(col.label || "").toLowerCase();
 
@@ -115,7 +133,22 @@ export class DetailPanel {
             }
 
             th.dataset.sort = col.key;
-            th.textContent = col.label;
+
+            const content = document.createElement("span");
+            content.className = "sort-header-content";
+
+            const labelText = document.createElement("span");
+            labelText.textContent = col.label;
+
+            const sortIcon = document.createElement("span");
+            sortIcon.className = `sort-icon ${isSorted ? "sort-icon-active" : "sort-icon-inactive"}`;
+            sortIcon.textContent = isSorted
+                ? sortDirection === "asc" ? "↑" : "↓"
+                : "↕";
+
+            content.appendChild(labelText);
+            content.appendChild(sortIcon);
+            th.appendChild(content);
             headerRow.appendChild(th);
         });
         thead.appendChild(headerRow);
@@ -187,6 +220,217 @@ export class DetailPanel {
         return section;
     }
 
+    private static resolveVisibleColumns(columns: DetailColumn[]): DetailColumn[] {
+        return TableSettingsService.apply(columns);
+    }
+
+    private static openColumnConfig(
+        section: HTMLElement,
+        availableColumns: DetailColumn[],
+        visibleColumns: DetailColumn[]
+    ): void {
+        section.querySelector(".column-config-backdrop")?.remove();
+
+        const settings = TableSettingsService.load();
+        const orderedColumns = TableSettingsService.apply(
+            availableColumns,
+            settings,
+            false
+        );
+
+        const selectedKeys = new Set(
+            settings
+                ? settings.visibleColumns
+                : visibleColumns.map(column => column.key)
+        );
+
+        const backdrop = document.createElement("div");
+        backdrop.className = "column-config-backdrop";
+
+        const panel = document.createElement("aside");
+        panel.className = "column-config-panel";
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-modal", "true");
+        panel.setAttribute("aria-label", "Configurar columnas");
+
+        const header = document.createElement("div");
+        header.className = "column-config-header";
+
+        const title = document.createElement("strong");
+        title.textContent = "Configurar columnas";
+
+        const closeButton = document.createElement("button");
+        closeButton.type = "button";
+        closeButton.className = "column-config-close";
+        closeButton.textContent = "×";
+        closeButton.title = "Cerrar";
+
+        header.appendChild(title);
+        header.appendChild(closeButton);
+
+        const search = document.createElement("input");
+        search.type = "search";
+        search.className = "column-config-search";
+        search.placeholder = "Buscar columnas...";
+
+        const bulkActions = document.createElement("div");
+        bulkActions.className = "column-config-bulk-actions";
+
+        const selectAllButton = document.createElement("button");
+        selectAllButton.type = "button";
+        selectAllButton.textContent = "Seleccionar todo";
+
+        const clearButton = document.createElement("button");
+        clearButton.type = "button";
+        clearButton.textContent = "Limpiar selección";
+
+        bulkActions.appendChild(selectAllButton);
+        bulkActions.appendChild(clearButton);
+
+        const list = document.createElement("div");
+        list.className = "column-config-list";
+
+        orderedColumns.forEach(column => {
+            list.appendChild(this.createColumnConfigItem(column, selectedKeys.has(column.key)));
+        });
+
+        const footer = document.createElement("div");
+        footer.className = "column-config-footer";
+
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "column-config-cancel";
+        cancelButton.textContent = "Cancelar";
+
+        const applyButton = document.createElement("button");
+        applyButton.type = "button";
+        applyButton.className = "column-config-apply";
+        applyButton.textContent = "Aplicar";
+
+        footer.appendChild(cancelButton);
+        footer.appendChild(applyButton);
+
+        panel.appendChild(header);
+        panel.appendChild(search);
+        panel.appendChild(bulkActions);
+        panel.appendChild(list);
+        panel.appendChild(footer);
+        backdrop.appendChild(panel);
+        section.appendChild(backdrop);
+
+        const close = () => backdrop.remove();
+
+        closeButton.addEventListener("click", close);
+        cancelButton.addEventListener("click", close);
+        backdrop.addEventListener("click", event => {
+            if (event.target === backdrop) close();
+        });
+
+        search.addEventListener("input", () => {
+            const query = this.normalizeLabel(search.value);
+            list.querySelectorAll<HTMLElement>(".column-config-item").forEach(item => {
+                const label = this.normalizeLabel(item.dataset.columnLabel);
+                item.hidden = Boolean(query) && !label.includes(query);
+            });
+        });
+
+        selectAllButton.addEventListener("click", () => {
+            list.querySelectorAll<HTMLInputElement>("input[type='checkbox']").forEach(checkbox => {
+                if (!checkbox.closest<HTMLElement>(".column-config-item")?.hidden) {
+                    checkbox.checked = true;
+                }
+            });
+        });
+
+        clearButton.addEventListener("click", () => {
+            list.querySelectorAll<HTMLInputElement>("input[type='checkbox']").forEach(checkbox => {
+                if (!checkbox.closest<HTMLElement>(".column-config-item")?.hidden) {
+                    checkbox.checked = false;
+                }
+            });
+        });
+
+        this.bindColumnDragAndDrop(list);
+
+        applyButton.addEventListener("click", () => {
+            const items = Array.from(list.querySelectorAll<HTMLElement>(".column-config-item"));
+            const currentSettings = TableSettingsService.load();
+
+            TableSettingsService.save({
+                columnOrder: items.map(item => item.dataset.columnKey || "").filter(Boolean),
+                visibleColumns: items
+                    .filter(item => item.querySelector<HTMLInputElement>("input[type='checkbox']")?.checked)
+                    .map(item => item.dataset.columnKey || "")
+                    .filter(Boolean),
+                sortColumn: currentSettings?.sortColumn,
+                sortDirection: currentSettings?.sortDirection
+            });
+            close();
+            section.dispatchEvent(new CustomEvent("detailcolumnschange", { bubbles: true }));
+        });
+
+        search.focus();
+    }
+
+    private static createColumnConfigItem(
+        column: DetailColumn,
+        selected: boolean
+    ): HTMLElement {
+        const item = document.createElement("label");
+        item.className = "column-config-item";
+        item.draggable = true;
+        item.dataset.columnKey = column.key;
+        item.dataset.columnLabel = column.label;
+
+        const dragHandle = document.createElement("span");
+        dragHandle.className = "column-drag-handle";
+        dragHandle.textContent = "⋮⋮";
+        dragHandle.title = "Arrastrar para reordenar";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = selected;
+
+        const label = document.createElement("span");
+        label.className = "column-config-label";
+        label.textContent = column.label;
+
+        item.appendChild(dragHandle);
+        item.appendChild(checkbox);
+        item.appendChild(label);
+        return item;
+    }
+
+    private static bindColumnDragAndDrop(list: HTMLElement): void {
+        let draggedItem: HTMLElement | null = null;
+
+        list.addEventListener("dragstart", event => {
+            const item = (event.target as HTMLElement).closest<HTMLElement>(".column-config-item");
+            if (!item || item.hidden) return;
+
+            draggedItem = item;
+            item.classList.add("dragging");
+            event.dataTransfer?.setData("text/plain", item.dataset.columnKey || "");
+            if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+        });
+
+        list.addEventListener("dragover", event => {
+            if (!draggedItem) return;
+            event.preventDefault();
+
+            const target = (event.target as HTMLElement).closest<HTMLElement>(".column-config-item");
+            if (!target || target === draggedItem || target.hidden) return;
+
+            const rect = target.getBoundingClientRect();
+            const insertAfter = event.clientY > rect.top + rect.height / 2;
+            list.insertBefore(draggedItem, insertAfter ? target.nextSibling : target);
+        });
+
+        list.addEventListener("dragend", () => {
+            draggedItem?.classList.remove("dragging");
+            draggedItem = null;
+        });
+    }
 
     private static addGradoAcademicoColumn(columns: (DetailColumn | any)[]): (DetailColumn | any)[] {
         const result = [...columns];
@@ -306,15 +550,14 @@ export class DetailPanel {
         const value = (row as any)[column.key];
         const label = String(column.label || "").toLowerCase();
 
-        if (column.label.toUpperCase() === "MONTO" || column.label === "S/.") {
+        if (this.isMoneyColumn(column)) {
             return `S/ ${fmt(Number(value) || 0)}`;
         }
 
         if (
             column.key === "fechaInicio" ||
             column.key === "fechaFin" ||
-            label.includes("fecha inicio") ||
-            label.includes("fecha fin")
+            label.includes("fecha")
         ) {
             return this.formatDate(value);
         }
