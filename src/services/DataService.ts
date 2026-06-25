@@ -66,7 +66,8 @@ export class DataService {
             experienciaEspecifica: getIndex("experienciaEspecifica"),
             objetoContratacion: getIndex("objetoContratacion"),
             actividadRelevante: getIndex("actividadRelevante"),
-            observacion: getIndex("observacion")
+            observacion: getIndex("observacion"),
+            vencenHastaEl: getIndex("vencenHastaEl")
         };
 
         // Fallback: try to resolve common column names when role mapping is not present
@@ -136,7 +137,8 @@ export class DataService {
                 experienciaEspecifica: text(idx.experienciaEspecifica >= 0 ? r[idx.experienciaEspecifica] : ""),
                 objetoContratacion: text(idx.objetoContratacion >= 0 ? r[idx.objetoContratacion] : ""),
                 actividadRelevante: text(idx.actividadRelevante >= 0 ? r[idx.actividadRelevante] : ""),
-                observacion: text(idx.observacion >= 0 ? r[idx.observacion] : "")
+                observacion: text(idx.observacion >= 0 ? r[idx.observacion] : ""),
+                vencenHastaEl: text(idx.vencenHastaEl >= 0 ? r[idx.vencenHastaEl] : "")
             };
 
             columns.forEach((col, index) => {
@@ -182,7 +184,8 @@ export class DataService {
         "experiencia especifica",
         "objeto contratacion",
         "actividad relevante",
-        "observacion"
+        "observacion",
+        "vencen hasta el"
     ];
 
     private static normalizeLabel(label: string): string {
@@ -203,6 +206,8 @@ export class DataService {
     private static readonly DETAIL_COLUMN_REQUESTS = [
         { label: "Tipo Personal", keywords: ["tipo personal", "tipo_personal", "tipo persona", "tipo", "personal", "role", "rol"], role: "tipoPersonal" },
         { label: "Área", keywords: ["área", "area"], role: "area" },
+        { label: "Equipo Trabajo", keywords: ["equipo trabajo", "equipo_trabajo", "equipo"], role: "equipoTrabajo" },
+        { label: "Cargo", keywords: ["cargo"], role: "cargo" },
         { label: "Nro Documento", keywords: ["nro documento", "nro_documento", "documento", "dni", "id", "numero documento"], role: "documento" },
         { label: "Nombres Completos", keywords: ["nombres completos", "nombre completo", "nombre", "nombres"], role: "nombre" },
         { label: "Año Ingreso", keywords: ["año ingreso", "anio ingreso", "anio", "año"], role: "anioIngreso" },
@@ -219,7 +224,8 @@ export class DataService {
         { label: "Diplomados", keywords: ["diplomados", "diploma"], role: "diplomados" },
         { label: "Cursos", keywords: ["cursos", "curso"], role: "cursos" },
         { label: "Actividad Relevante", keywords: ["actividad relevante", "actividad"], role: "actividadRelevante" },
-        { label: "Observación", keywords: ["observación", "observacion", "observaciones"], role: "observacion" }
+        { label: "Observación", keywords: ["observación", "observacion", "observaciones"], role: "observacion", appendToEnd: true },
+        { label: "Vencen hasta el", keywords: ["vencen hasta el", "vencenhastael", "vencen_hasta_el"], role: "vencenHastaEl", appendToEnd: true }
     ];
 
     public static getDetailColumns(dataView: DataView): DetailColumn[] {
@@ -237,7 +243,17 @@ export class DataService {
 
         const detailColumns = columns.filter(column => !this.isUnidadOrg(column.label));
         const selectedFields = detailColumns.filter(column => Boolean(column.roles.detailFields));
-        const sourceColumns = selectedFields.length > 0 ? selectedFields : detailColumns;
+        const independentRoleNames = new Set(
+            this.DETAIL_COLUMN_REQUESTS.map(request => request.role)
+        );
+        const independentColumns = detailColumns.filter(column =>
+            independentRoleNames.has(column.roleName)
+        );
+        const sourceColumns = selectedFields.length > 0
+            ? [...independentColumns, ...selectedFields.filter(column =>
+                !independentColumns.some(independent => independent.key === column.key)
+            )]
+            : detailColumns;
 
         const usedIndexes = new Set<number>();
         const matched = this.DETAIL_COLUMN_REQUESTS.flatMap(request => {
@@ -252,15 +268,25 @@ export class DataService {
 
             if (!found) return [];
             usedIndexes.add(sourceColumns.indexOf(found));
-            return [{ key: found.key, label: request.label }];
+            return [{
+                key: found.key,
+                label: request.label,
+                appendToEnd: Boolean(request.appendToEnd)
+            }];
         });
 
         const matchedKeys = new Set(matched.map(column => column.key));
+        const regularMatched = matched
+            .filter(column => !column.appendToEnd)
+            .map(({ key, label }) => ({ key, label }));
+        const endMatched = matched
+            .filter(column => column.appendToEnd)
+            .map(({ key, label }) => ({ key, label }));
         const remaining = sourceColumns
             .filter(column => !matchedKeys.has(column.key))
             .map(column => ({ key: column.key, label: column.label }));
 
-        return [...matched, ...remaining];
+        return [...regularMatched, ...remaining, ...endMatched];
     }
 
     private static isUnidadOrg(label: string): boolean {

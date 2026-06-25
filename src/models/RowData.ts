@@ -30,6 +30,7 @@ export interface RowData {
     objetoContratacion?: string;
     actividadRelevante?: string;
     observacion?: string;
+    vencenHastaEl?: string;
     selectionId?: powerbi.extensibility.ISelectionId;
     [key: string]: string | number | powerbi.extensibility.ISelectionId | undefined;
 }

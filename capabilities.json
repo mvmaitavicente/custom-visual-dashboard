@@ -19,6 +19,8 @@
     { "displayName": "Fecha Inicio", "name": "fechaInicio", "kind": "Grouping" },
     { "displayName": "Fecha Fin", "name": "fechaFin", "kind": "Grouping" },
     { "displayName": "Año Ingreso", "name": "anioIngreso", "kind": "Grouping" },
+    { "displayName": "Observación", "name": "observacion", "kind": "Grouping" },
+    { "displayName": "Vencen hasta el", "name": "vencenHastaEl", "kind": "Grouping" },
     { "displayName": "Detalle - campos libres", "name": "detailFields", "kind": "Grouping" }
   ],
   "dataViewMappings": [
@@ -39,6 +41,8 @@
             { "for": { "in": "fechaInicio" } },
             { "for": { "in": "fechaFin" } },
             { "for": { "in": "anioIngreso" } },
+            { "for": { "in": "observacion" } },
+            { "for": { "in": "vencenHastaEl" } },
             { "for": { "in": "detailFields" } }
           ],
           "dataReductionAlgorithm": {

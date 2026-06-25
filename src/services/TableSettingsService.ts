@@ -172,7 +172,10 @@ export class TableSettingsService {
         if (!visibleOnly) return ordered;
 
         const visibleKeys = new Set(settings.visibleColumns);
-        return ordered.filter(column => visibleKeys.has(column.key));
+        const configuredKeys = new Set(settings.columnOrder);
+        return ordered.filter(column =>
+            visibleKeys.has(column.key) || !configuredKeys.has(column.key)
+        );
     }
 
     private persist(settings: TableSettings): void {
