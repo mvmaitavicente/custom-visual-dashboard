@@ -5,6 +5,7 @@ import { fmt, formatDate } from "../utils/format";
 import { cleanTsvValue, runCopyAction } from "../utils/clipboard";
 
 const PAGE_SIZE = 50;
+type ColumnFilters = Record<string, string[]>;
 
 export class DetailPanel {
     public static render(
@@ -17,24 +18,12 @@ export class DetailPanel {
         tableSettingsService: TableSettingsService
     ): HTMLElement {
         const query = search.trim().toLowerCase();
-        const filtered = rows.filter(row => {
+        const searchFiltered = rows.filter(row => {
             if (!query) return true;
             return Object.entries(row)
                 .filter(([key]) => key !== "selectionId")
                 .some(([, value]) => String(value ?? "").toLowerCase().includes(query));
         });
-
-        const sorted = [...filtered].sort((a, b) => {
-            const av = String((a as any)[sortField] ?? "").toLowerCase();
-            const bv = String((b as any)[sortField] ?? "").toLowerCase();
-            if (av === bv) return 0;
-            return sortDirection === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
-        });
-
-        const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
-        const safePage = Math.min(page, pages);
-        const firstIndex = (safePage - 1) * PAGE_SIZE;
-        const pageRows = sorted.slice(firstIndex, firstIndex + PAGE_SIZE);
 
         const availableColumns = this.addGradoAcademicoColumn(
             columns.length > 0
@@ -47,6 +36,23 @@ export class DetailPanel {
             availableColumns,
             tableSettingsService
         );
+        const activeFilters = tableSettingsService.load()?.filters || {};
+        const filtered = this.applyColumnFilters(
+            searchFiltered,
+            availableColumns,
+            activeFilters
+        );
+        const sorted = [...filtered].sort((a, b) => {
+            const av = String((a as any)[sortField] ?? "").toLowerCase();
+            const bv = String((b as any)[sortField] ?? "").toLowerCase();
+            if (av === bv) return 0;
+            return sortDirection === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+        });
+
+        const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+        const safePage = Math.min(page, pages);
+        const firstIndex = (safePage - 1) * PAGE_SIZE;
+        const pageRows = sorted.slice(firstIndex, firstIndex + PAGE_SIZE);
 
         const section = document.createElement("section");
         section.className = "detail-section";
@@ -110,6 +116,16 @@ export class DetailPanel {
         toolbar.appendChild(toolbarActions);
         section.appendChild(toolbar);
 
+        const filterChips = this.createFilterChips(
+            activeFilters,
+            availableColumns,
+            tableSettingsService,
+            section
+        );
+        if (filterChips) {
+            section.appendChild(filterChips);
+        }
+
         const tableWrap = document.createElement("div");
         tableWrap.className = "detail-table-wrap";
 
@@ -155,8 +171,27 @@ export class DetailPanel {
                 ? sortDirection === "asc" ? "↑" : "↓"
                 : "↕";
 
+            const filterButton = document.createElement("button");
+            filterButton.type = "button";
+            filterButton.className = `filter-icon ${activeFilters[col.key]?.length ? "active-filter" : ""}`.trim();
+            filterButton.title = `Filtrar ${col.label}`;
+            filterButton.setAttribute("aria-label", `Filtrar ${col.label}`);
+            filterButton.addEventListener("click", event => {
+                event.preventDefault();
+                event.stopPropagation();
+                this.openColumnFilter(
+                    section,
+                    filterButton,
+                    rows,
+                    availableColumns,
+                    col,
+                    tableSettingsService
+                );
+            });
+
             content.appendChild(labelText);
             content.appendChild(sortIcon);
+            content.appendChild(filterButton);
             th.appendChild(content);
             headerRow.appendChild(th);
         });
@@ -227,6 +262,326 @@ export class DetailPanel {
         section.appendChild(footer);
 
         return section;
+    }
+
+    private static applyColumnFilters(
+        rows: RowData[],
+        columns: DetailColumn[],
+        filters: ColumnFilters,
+        excludedColumnKey?: string
+    ): RowData[] {
+        const activeFilters = Object.entries(filters)
+            .filter(([key]) => key !== excludedColumnKey)
+            .map(([key, values]) => ({
+                column: columns.find(column => column.key === key),
+                values: new Set(values)
+            }))
+            .filter(entry => Boolean(entry.column));
+
+        if (activeFilters.length === 0) return rows;
+
+        return rows.filter(row =>
+            activeFilters.every(({ column, values }) =>
+                values.has(this.getCellValue(row, column!))
+            )
+        );
+    }
+
+    private static createFilterChips(
+        filters: ColumnFilters,
+        columns: DetailColumn[],
+        tableSettingsService: TableSettingsService,
+        section: HTMLElement
+    ): HTMLElement | null {
+        const activeEntries = Object.entries(filters)
+            .map(([key, values]) => ({
+                column: columns.find(column => column.key === key),
+                values
+            }))
+            .filter(entry => Boolean(entry.column));
+
+        if (activeEntries.length === 0) return null;
+
+        const bar = document.createElement("div");
+        bar.className = "detail-filter-bar";
+
+        const label = document.createElement("strong");
+        label.className = "detail-filter-label";
+        label.textContent = "Filtros activos:";
+        bar.appendChild(label);
+
+        activeEntries.forEach(({ column, values }) => {
+            const chip = document.createElement("div");
+            chip.className = "filter-chip";
+
+            const text = document.createElement("span");
+            const summary = values.length === 0
+                ? "Sin valores"
+                : values.length <= 2
+                    ? values.map(value => value || "(Vacío)").join(", ")
+                    : `${values.length} seleccionados`;
+            text.textContent = `${column!.label}: ${summary}`;
+
+            const removeButton = document.createElement("button");
+            removeButton.type = "button";
+            removeButton.className = "filter-chip-remove";
+            removeButton.textContent = "×";
+            removeButton.title = `Quitar filtro ${column!.label}`;
+            removeButton.addEventListener("click", () => {
+                const nextFilters = { ...(tableSettingsService.load()?.filters || {}) };
+                delete nextFilters[column!.key];
+                this.saveFilters(tableSettingsService, columns, nextFilters);
+                section.dispatchEvent(new CustomEvent("detailsettingschange", { bubbles: true }));
+            });
+
+            chip.appendChild(text);
+            chip.appendChild(removeButton);
+            bar.appendChild(chip);
+        });
+
+        const clearButton = document.createElement("button");
+        clearButton.type = "button";
+        clearButton.className = "clear-filters-btn";
+        clearButton.textContent = "Limpiar filtros";
+        clearButton.addEventListener("click", () => {
+            this.saveFilters(tableSettingsService, columns, {});
+            section.dispatchEvent(new CustomEvent("detailsettingschange", { bubbles: true }));
+        });
+        bar.appendChild(clearButton);
+
+        return bar;
+    }
+
+    private static openColumnFilter(
+        section: HTMLElement,
+        anchor: HTMLElement,
+        rows: RowData[],
+        columns: DetailColumn[],
+        column: DetailColumn,
+        tableSettingsService: TableSettingsService
+    ): void {
+        section.querySelector(".filter-popover")?.remove();
+
+        const settings = tableSettingsService.load();
+        const activeFilters = settings?.filters || {};
+        const sourceRows = this.applyColumnFilters(
+            rows,
+            columns,
+            activeFilters,
+            column.key
+        );
+        const uniqueValues = Array.from(new Set(
+            sourceRows.map(row => this.getCellValue(row, column))
+        )).sort((a, b) => a.localeCompare(b, undefined, {
+            numeric: true,
+            sensitivity: "base"
+        }));
+        const selectedValues = new Set(
+            activeFilters[column.key] ?? uniqueValues
+        );
+
+        const popover = document.createElement("div");
+        popover.className = "filter-popover";
+
+        const title = document.createElement("div");
+        title.className = "filter-popover-title";
+        title.textContent = `Filtrar ${column.label}`;
+
+        const search = document.createElement("input");
+        search.type = "search";
+        search.className = "filter-popover-search";
+        search.placeholder = "Buscar...";
+
+        const list = document.createElement("div");
+        list.className = "filter-values-list";
+
+        const selectAllItem = document.createElement("label");
+        selectAllItem.className = "filter-value-item filter-select-all";
+        const selectAllCheckbox = document.createElement("input");
+        selectAllCheckbox.type = "checkbox";
+        selectAllCheckbox.checked = uniqueValues.length > 0 &&
+            uniqueValues.every(value => selectedValues.has(value));
+        const selectAllText = document.createElement("span");
+        selectAllText.textContent = "(Seleccionar todo)";
+        selectAllItem.appendChild(selectAllCheckbox);
+        selectAllItem.appendChild(selectAllText);
+        list.appendChild(selectAllItem);
+
+        if (uniqueValues.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "filter-empty";
+            empty.textContent = "Sin datos";
+            list.appendChild(empty);
+        } else {
+            const fragment = document.createDocumentFragment();
+            uniqueValues.forEach(value => {
+                const item = document.createElement("label");
+                item.className = "filter-value-item";
+                item.dataset.filterSearch = this.normalizeLabel(value);
+
+                const checkbox = document.createElement("input");
+                checkbox.type = "checkbox";
+                checkbox.checked = selectedValues.has(value);
+                checkbox.dataset.filterValue = value;
+
+                const text = document.createElement("span");
+                text.textContent = value || "(Vacío)";
+
+                item.appendChild(checkbox);
+                item.appendChild(text);
+                fragment.appendChild(item);
+            });
+            list.appendChild(fragment);
+        }
+
+        const footer = document.createElement("div");
+        footer.className = "filter-popover-footer";
+
+        const clearButton = document.createElement("button");
+        clearButton.type = "button";
+        clearButton.className = "filter-clear-btn";
+        clearButton.textContent = "Limpiar";
+
+        const cancelButton = document.createElement("button");
+        cancelButton.type = "button";
+        cancelButton.className = "filter-cancel-btn";
+        cancelButton.textContent = "Cancelar";
+
+        const applyButton = document.createElement("button");
+        applyButton.type = "button";
+        applyButton.className = "filter-apply-btn";
+        applyButton.textContent = "Aplicar";
+
+        footer.appendChild(clearButton);
+        footer.appendChild(cancelButton);
+        footer.appendChild(applyButton);
+
+        popover.appendChild(title);
+        popover.appendChild(search);
+        popover.appendChild(list);
+        popover.appendChild(footer);
+        section.appendChild(popover);
+
+        const positionPopover = () => {
+            const sectionRect = section.getBoundingClientRect();
+            const anchorRect = anchor.getBoundingClientRect();
+            const maxLeft = Math.max(8, section.clientWidth - popover.offsetWidth - 8);
+            const left = Math.min(
+                Math.max(8, anchorRect.left - sectionRect.left - popover.offsetWidth + anchorRect.width),
+                maxLeft
+            );
+            let top = anchorRect.bottom - sectionRect.top + 6;
+
+            if (top + popover.offsetHeight > section.clientHeight - 8) {
+                top = Math.max(
+                    8,
+                    anchorRect.top - sectionRect.top - popover.offsetHeight - 6
+                );
+            }
+
+            popover.style.left = `${left}px`;
+            popover.style.top = `${top}px`;
+        };
+        positionPopover();
+
+        const valueCheckboxes = () =>
+            Array.from(list.querySelectorAll<HTMLInputElement>(
+                ".filter-value-item:not(.filter-select-all) input[type='checkbox']"
+            ));
+
+        const updateSelectAll = () => {
+            const checkboxes = valueCheckboxes();
+            selectAllCheckbox.checked = checkboxes.length > 0 &&
+                checkboxes.every(checkbox => checkbox.checked);
+            selectAllCheckbox.indeterminate = checkboxes.some(checkbox => checkbox.checked) &&
+                !selectAllCheckbox.checked;
+        };
+
+        search.addEventListener("input", () => {
+            const query = this.normalizeLabel(search.value);
+            list.querySelectorAll<HTMLElement>(
+                ".filter-value-item:not(.filter-select-all)"
+            ).forEach(item => {
+                item.hidden = Boolean(query) &&
+                    !String(item.dataset.filterSearch || "").includes(query);
+            });
+        });
+
+        selectAllCheckbox.addEventListener("change", () => {
+            valueCheckboxes().forEach(checkbox => {
+                checkbox.checked = selectAllCheckbox.checked;
+            });
+            updateSelectAll();
+        });
+
+        valueCheckboxes().forEach(checkbox => {
+            checkbox.addEventListener("change", updateSelectAll);
+        });
+
+        clearButton.addEventListener("click", () => {
+            valueCheckboxes().forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateSelectAll();
+        });
+
+        const onOutsidePointerDown = (event: Event) => {
+            const target = event.target as Node | null;
+            if (target && !popover.contains(target) && !anchor.contains(target)) {
+                close();
+            }
+        };
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === "Escape") close();
+        };
+        const close = () => {
+            document.removeEventListener("pointerdown", onOutsidePointerDown);
+            document.removeEventListener("keydown", onKeyDown);
+            popover.remove();
+        };
+        cancelButton.addEventListener("click", close);
+
+        applyButton.addEventListener("click", () => {
+            const selected = valueCheckboxes()
+                .filter(checkbox => checkbox.checked)
+                .map(checkbox => checkbox.dataset.filterValue ?? "");
+            const nextFilters = { ...activeFilters };
+
+            if (selected.length === uniqueValues.length) {
+                delete nextFilters[column.key];
+            } else {
+                nextFilters[column.key] = selected;
+            }
+
+            this.saveFilters(tableSettingsService, columns, nextFilters);
+            close();
+            section.dispatchEvent(new CustomEvent("detailsettingschange", { bubbles: true }));
+        });
+
+        window.setTimeout(() => {
+            document.addEventListener("pointerdown", onOutsidePointerDown);
+            document.addEventListener("keydown", onKeyDown);
+        }, 0);
+        search.focus();
+    }
+
+    private static saveFilters(
+        tableSettingsService: TableSettingsService,
+        columns: DetailColumn[],
+        filters: ColumnFilters
+    ): void {
+        const current = tableSettingsService.load();
+        const columnKeys = columns.map(column => column.key);
+
+        tableSettingsService.save({
+            visibleColumns: current?.visibleColumns || columnKeys,
+            columnOrder: current?.columnOrder || columnKeys,
+            sortColumn: current?.sortColumn,
+            sortDirection: current?.sortDirection,
+            filters,
+            savedViews: current?.savedViews,
+            activeViewId: current?.activeViewId
+        });
     }
 
     private static resolveVisibleColumns(
@@ -445,7 +800,8 @@ export class DetailPanel {
             const viewSettings = this.readColumnSettings(
                 list,
                 currentSettings?.sortColumn,
-                currentSettings?.sortDirection
+                currentSettings?.sortDirection,
+                currentSettings?.filters
             );
             const savedView = tableSettingsService.saveNamedView(
                 viewNameInput.value,
@@ -477,7 +833,8 @@ export class DetailPanel {
             tableSettingsService.save(this.readColumnSettings(
                 list,
                 currentSettings?.sortColumn,
-                currentSettings?.sortDirection
+                currentSettings?.sortDirection,
+                currentSettings?.filters
             ));
             close();
             section.dispatchEvent(new CustomEvent("detailsettingschange", { bubbles: true }));
@@ -489,7 +846,8 @@ export class DetailPanel {
     private static readColumnSettings(
         list: HTMLElement,
         sortColumn?: string,
-        sortDirection?: "asc" | "desc"
+        sortDirection?: "asc" | "desc",
+        filters?: ColumnFilters
     ) {
         const items = Array.from(list.querySelectorAll<HTMLElement>(".column-config-item"));
 
@@ -500,7 +858,8 @@ export class DetailPanel {
                 .map(item => item.dataset.columnKey || "")
                 .filter(Boolean),
             sortColumn,
-            sortDirection
+            sortDirection,
+            filters
         };
     }
 

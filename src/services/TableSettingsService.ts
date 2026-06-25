@@ -8,6 +8,7 @@ export interface TableSettings {
     columnOrder: string[];
     sortColumn?: string;
     sortDirection?: "asc" | "desc";
+    filters?: Record<string, string[]>;
     savedViews?: SavedTableView[];
     activeViewId?: string;
 }
@@ -19,6 +20,7 @@ export interface SavedTableView {
     columnOrder: string[];
     sortColumn?: string;
     sortDirection?: "asc" | "desc";
+    filters?: Record<string, string[]>;
 }
 
 type ColumnWithKey = {
@@ -69,6 +71,7 @@ export class TableSettingsService {
     public save(settings: TableSettings): void {
         const normalized = this.normalize({
             ...settings,
+            filters: settings.filters ?? this.settings?.filters,
             savedViews: settings.savedViews ?? this.settings?.savedViews,
             activeViewId: settings.activeViewId
         });
@@ -96,7 +99,8 @@ export class TableSettingsService {
             visibleColumns: this.uniqueStrings(settings.visibleColumns),
             columnOrder: this.uniqueStrings(settings.columnOrder),
             sortColumn: settings.sortColumn,
-            sortDirection: settings.sortDirection
+            sortDirection: settings.sortDirection,
+            filters: this.normalizeFilters(settings.filters ?? this.settings?.filters)
         };
 
         if (existingIndex >= 0) {
@@ -123,6 +127,7 @@ export class TableSettingsService {
             columnOrder: view.columnOrder,
             sortColumn: view.sortColumn,
             sortDirection: view.sortDirection,
+            filters: this.normalizeFilters(view.filters),
             savedViews: this.getSavedViews(),
             activeViewId: view.id
         };
@@ -244,6 +249,9 @@ export class TableSettingsService {
                 sortDirection: parsed.sortDirection === "asc" || parsed.sortDirection === "desc"
                     ? parsed.sortDirection
                     : undefined,
+                filters: this.isFilterRecord(parsed.filters)
+                    ? parsed.filters
+                    : undefined,
                 savedViews: Array.isArray(parsed.savedViews)
                     ? parsed.savedViews
                     : undefined,
@@ -266,6 +274,7 @@ export class TableSettingsService {
             sortDirection: settings.sortDirection === "asc" || settings.sortDirection === "desc"
                 ? settings.sortDirection
                 : undefined,
+            filters: this.normalizeFilters(settings.filters),
             savedViews: this.normalizeSavedViews(settings.savedViews),
             activeViewId: typeof settings.activeViewId === "string"
                 ? settings.activeViewId
@@ -288,7 +297,8 @@ export class TableSettingsService {
                     : undefined,
                 sortDirection: view.sortDirection === "asc" || view.sortDirection === "desc"
                     ? view.sortDirection
-                    : undefined
+                    : undefined,
+                filters: this.normalizeFilters(view.filters)
             }))
             .filter(view => Boolean(view.name));
     }
@@ -301,6 +311,29 @@ export class TableSettingsService {
             .join("");
 
         return `view_${Date.now()}_${suffix}`;
+    }
+
+    private normalizeFilters(
+        filters: Record<string, string[]> | undefined
+    ): Record<string, string[]> {
+        if (!filters) return {};
+
+        return Object.entries(filters).reduce<Record<string, string[]>>(
+            (result, [key, values]) => {
+                if (typeof key !== "string" || !Array.isArray(values)) return result;
+                result[key] = this.uniqueStrings(values);
+                return result;
+            },
+            {}
+        );
+    }
+
+    private isFilterRecord(value: unknown): value is Record<string, string[]> {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+
+        return Object.values(value).every(values =>
+            Array.isArray(values) && values.every(item => typeof item === "string")
+        );
     }
 
     private uniqueStrings(values: string[]): string[] {
