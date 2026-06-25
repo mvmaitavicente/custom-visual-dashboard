@@ -305,6 +305,7 @@ export class DetailPanel {
 
         return rows.filter(row =>
             activeFilters.every(({ column, values }) =>
+                values.has(this.getFilterValue(row, column!)) ||
                 values.has(this.getCellValue(row, column!))
             )
         );
@@ -393,14 +394,31 @@ export class DetailPanel {
             activeFilters,
             column.key
         );
-        const uniqueValues = Array.from(new Set(
-            sourceRows.map(row => this.getCellValue(row, column))
-        )).sort((a, b) => a.localeCompare(b, undefined, {
+        const uniqueValues = Array.from(sourceRows.reduce((values, row) => {
+            const value = this.getFilterValue(row, column);
+            if (!values.has(value)) {
+                values.set(value, this.getFilterDisplayValue(row, column));
+            }
+            return values;
+        }, new Map<string, string>())).map(([value, displayValue]) => ({
+            value,
+            displayValue
+        })).sort((a, b) => a.displayValue.localeCompare(b.displayValue, undefined, {
             numeric: true,
             sensitivity: "base"
         }));
-        const selectedValues = new Set(
-            activeFilters[column.key] ?? uniqueValues
+        const storedValues = new Set(activeFilters[column.key] ?? []);
+        const existingAppliedValues = new Set(
+            uniqueValues
+                .filter(entry =>
+                    storedValues.has(entry.value) || storedValues.has(entry.displayValue)
+                )
+                .map(entry => entry.value)
+        );
+        const tempSelectedValues = new Set(
+            activeFilters[column.key]
+                ? existingAppliedValues
+                : uniqueValues.map(entry => entry.value)
         );
 
         const popover = document.createElement("div");
@@ -415,6 +433,15 @@ export class DetailPanel {
         search.className = "filter-popover-search";
         search.placeholder = "Buscar...";
 
+        const addSelectionLabel = document.createElement("label");
+        addSelectionLabel.className = "filter-add-selection";
+        const addSelectionCheckbox = document.createElement("input");
+        addSelectionCheckbox.type = "checkbox";
+        const addSelectionText = document.createElement("span");
+        addSelectionText.textContent = "Agregar selección actual al filtro";
+        addSelectionLabel.appendChild(addSelectionCheckbox);
+        addSelectionLabel.appendChild(addSelectionText);
+
         const list = document.createElement("div");
         list.className = "filter-values-list";
 
@@ -423,7 +450,7 @@ export class DetailPanel {
         const selectAllCheckbox = document.createElement("input");
         selectAllCheckbox.type = "checkbox";
         selectAllCheckbox.checked = uniqueValues.length > 0 &&
-            uniqueValues.every(value => selectedValues.has(value));
+            uniqueValues.every(entry => tempSelectedValues.has(entry.value));
         const selectAllText = document.createElement("span");
         selectAllText.textContent = "(Seleccionar todo)";
         selectAllItem.appendChild(selectAllCheckbox);
@@ -437,18 +464,18 @@ export class DetailPanel {
             list.appendChild(empty);
         } else {
             const fragment = document.createDocumentFragment();
-            uniqueValues.forEach(value => {
+            uniqueValues.forEach(({ value, displayValue }) => {
                 const item = document.createElement("label");
                 item.className = "filter-value-item";
-                item.dataset.filterSearch = this.normalizeLabel(value);
+                item.dataset.filterSearch = String(displayValue ?? "").toLowerCase();
 
                 const checkbox = document.createElement("input");
                 checkbox.type = "checkbox";
-                checkbox.checked = selectedValues.has(value);
+                checkbox.checked = tempSelectedValues.has(value);
                 checkbox.dataset.filterValue = value;
 
                 const text = document.createElement("span");
-                text.textContent = value || "(Vacío)";
+                text.textContent = displayValue;
 
                 item.appendChild(checkbox);
                 item.appendChild(text);
@@ -456,6 +483,12 @@ export class DetailPanel {
             });
             list.appendChild(fragment);
         }
+
+        const noMatches = document.createElement("div");
+        noMatches.className = "filter-empty";
+        noMatches.textContent = "Sin coincidencias";
+        noMatches.hidden = true;
+        list.appendChild(noMatches);
 
         const footer = document.createElement("div");
         footer.className = "filter-popover-footer";
@@ -481,6 +514,7 @@ export class DetailPanel {
 
         popover.appendChild(title);
         popover.appendChild(search);
+        popover.appendChild(addSelectionLabel);
         popover.appendChild(list);
         popover.appendChild(footer);
         section.appendChild(popover);
@@ -512,39 +546,108 @@ export class DetailPanel {
                 ".filter-value-item:not(.filter-select-all) input[type='checkbox']"
             ));
 
+        const visibleValueCheckboxes = () =>
+            valueCheckboxes().filter(checkbox =>
+                !checkbox.closest<HTMLElement>(".filter-value-item")?.hidden
+            );
+
+        const updateTempSelection = (
+            checkbox: HTMLInputElement,
+            checked: boolean = checkbox.checked
+        ) => {
+            const value = String(checkbox.dataset.filterValue ?? "").trim();
+            if (checked) {
+                tempSelectedValues.add(value);
+            } else {
+                tempSelectedValues.delete(value);
+            }
+        };
+
+        const replaceTempWithVisibleSelection = () => {
+            tempSelectedValues.clear();
+            visibleValueCheckboxes().forEach(checkbox => {
+                if (checkbox.checked) updateTempSelection(checkbox);
+            });
+        };
+
+        const syncCheckboxesFromTempSelection = () => {
+            valueCheckboxes().forEach(checkbox => {
+                checkbox.checked = tempSelectedValues.has(
+                    String(checkbox.dataset.filterValue ?? "").trim()
+                );
+            });
+        };
+
         const updateSelectAll = () => {
-            const checkboxes = valueCheckboxes();
+            const checkboxes = visibleValueCheckboxes();
             selectAllCheckbox.checked = checkboxes.length > 0 &&
                 checkboxes.every(checkbox => checkbox.checked);
             selectAllCheckbox.indeterminate = checkboxes.some(checkbox => checkbox.checked) &&
                 !selectAllCheckbox.checked;
+            selectAllCheckbox.disabled = checkboxes.length === 0;
         };
 
         search.addEventListener("input", () => {
-            const query = this.normalizeLabel(search.value);
+            const searchText = search.value.trim().toLowerCase();
+            let visibleCount = 0;
+
             list.querySelectorAll<HTMLElement>(
                 ".filter-value-item:not(.filter-select-all)"
             ).forEach(item => {
-                item.hidden = Boolean(query) &&
-                    !String(item.dataset.filterSearch || "").includes(query);
+                const value = String(item.dataset.filterSearch ?? "").toLowerCase();
+                const matches = value.includes(searchText);
+                item.hidden = !matches;
+                if (matches) {
+                    visibleCount++;
+                    const checkbox = item.querySelector<HTMLInputElement>(
+                        "input[data-filter-value]"
+                    );
+                    if (checkbox && addSelectionCheckbox.checked) {
+                        checkbox.checked = tempSelectedValues.has(
+                            String(checkbox.dataset.filterValue ?? "").trim()
+                        );
+                    }
+                }
             });
+
+            noMatches.hidden = visibleCount > 0 || uniqueValues.length === 0;
+            if (!addSelectionCheckbox.checked) {
+                replaceTempWithVisibleSelection();
+            }
+            updateSelectAll();
         });
 
         selectAllCheckbox.addEventListener("change", () => {
-            valueCheckboxes().forEach(checkbox => {
+            visibleValueCheckboxes().forEach(checkbox => {
                 checkbox.checked = selectAllCheckbox.checked;
+                updateTempSelection(checkbox);
             });
             updateSelectAll();
         });
 
         valueCheckboxes().forEach(checkbox => {
-            checkbox.addEventListener("change", updateSelectAll);
+            checkbox.addEventListener("change", () => {
+                updateTempSelection(checkbox);
+                updateSelectAll();
+            });
         });
+
+        addSelectionCheckbox.addEventListener("change", () => {
+            if (addSelectionCheckbox.checked) {
+                existingAppliedValues.forEach(value => tempSelectedValues.add(value));
+                syncCheckboxesFromTempSelection();
+            } else {
+                replaceTempWithVisibleSelection();
+            }
+            updateSelectAll();
+        });
+        updateSelectAll();
 
         clearButton.addEventListener("click", () => {
             valueCheckboxes().forEach(checkbox => {
                 checkbox.checked = false;
             });
+            tempSelectedValues.clear();
             updateSelectAll();
         });
 
@@ -565,9 +668,11 @@ export class DetailPanel {
         cancelButton.addEventListener("click", close);
 
         applyButton.addEventListener("click", () => {
-            const selected = valueCheckboxes()
-                .filter(checkbox => checkbox.checked)
-                .map(checkbox => checkbox.dataset.filterValue ?? "");
+            const selected = addSelectionCheckbox.checked
+                ? Array.from(tempSelectedValues)
+                : visibleValueCheckboxes()
+                    .filter(checkbox => checkbox.checked)
+                    .map(checkbox => String(checkbox.dataset.filterValue ?? "").trim());
             const nextFilters = { ...activeFilters };
 
             if (selected.length === uniqueValues.length) {
@@ -586,6 +691,16 @@ export class DetailPanel {
             document.addEventListener("keydown", onKeyDown);
         }, 0);
         search.focus();
+    }
+
+    private static getFilterValue(row: RowData, column: DetailColumn): string {
+        return String(row[column.key] ?? "").trim();
+    }
+
+    private static getFilterDisplayValue(row: RowData, column: DetailColumn): string {
+        return this.getFilterValue(row, column) === ""
+            ? "(Vacío)"
+            : this.getCellValue(row, column);
     }
 
     private static saveFilters(

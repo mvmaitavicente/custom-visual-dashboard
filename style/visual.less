@@ -733,7 +733,7 @@
     background: #ffffff;
     box-shadow: 0 12px 30px rgba(15, 23, 42, .18);
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
     gap: 12px;
     box-sizing: border-box;
     resize: both;
@@ -758,6 +758,24 @@
     box-sizing: border-box;
 }
 
+.filter-add-selection {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #344054;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.filter-add-selection input {
+    width: 17px;
+    height: 17px;
+    margin: 0;
+    accent-color: #2f5be8;
+}
+
 .filter-values-list {
     min-height: 80px;
     height: 100%;
@@ -778,6 +796,10 @@
     font-size: 15px;
     cursor: pointer;
     box-sizing: border-box;
+}
+
+.filter-value-item[hidden] {
+    display: none;
 }
 
 .filter-value-item:hover {
