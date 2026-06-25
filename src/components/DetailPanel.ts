@@ -6,6 +6,12 @@ import { cleanTsvValue, runCopyAction } from "../utils/clipboard";
 
 const PAGE_SIZE = 50;
 type ColumnFilters = Record<string, string[]>;
+export type DetailExcelExportHandler = (
+    rows: RowData[],
+    columns: DetailColumn[],
+    statusElement: HTMLElement,
+    button: HTMLButtonElement
+) => Promise<void>;
 
 export class DetailPanel {
     public static render(
@@ -15,7 +21,8 @@ export class DetailPanel {
         page: number,
         sortField: string,
         sortDirection: "asc" | "desc",
-        tableSettingsService: TableSettingsService
+        tableSettingsService: TableSettingsService,
+        onExportExcel: DetailExcelExportHandler
     ): HTMLElement {
         const query = search.trim().toLowerCase();
         const searchFiltered = rows.filter(row => {
@@ -95,6 +102,20 @@ export class DetailPanel {
             });
         });
 
+        const exportButton = document.createElement("button");
+        exportButton.type = "button";
+        exportButton.className = "excel-export-btn";
+        exportButton.textContent = "Descargar Excel";
+
+        const exportStatus = document.createElement("span");
+        exportStatus.className = "excel-export-status";
+        exportStatus.setAttribute("role", "status");
+        exportStatus.setAttribute("aria-live", "polite");
+
+        exportButton.addEventListener("click", async () => {
+            await onExportExcel(sorted, visibleColumns, exportStatus, exportButton);
+        });
+
         const configButton = document.createElement("button");
         configButton.type = "button";
         configButton.className = "column-config-btn";
@@ -110,7 +131,9 @@ export class DetailPanel {
 
         toolbarActions.appendChild(input);
         toolbarActions.appendChild(copyButton);
+        toolbarActions.appendChild(exportButton);
         toolbarActions.appendChild(configButton);
+        toolbarActions.appendChild(exportStatus);
 
         toolbar.appendChild(toolbarInfo);
         toolbar.appendChild(toolbarActions);

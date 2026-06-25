@@ -1139,6 +1139,46 @@
     height: 42px;
 }
 
+.excel-export-btn {
+    height: 42px;
+    border: 1px solid #217346;
+    border-radius: 7px;
+    padding: 0 12px;
+    background: #217346;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .16s ease, border-color .16s ease, opacity .16s ease;
+}
+
+.excel-export-btn:hover {
+    background: #185c37;
+    border-color: #185c37;
+}
+
+.excel-export-btn:disabled {
+    cursor: wait;
+    opacity: .65;
+}
+
+.excel-export-status {
+    max-width: 210px;
+    color: #475467;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.25;
+}
+
+.excel-export-status.success {
+    color: #18794e;
+}
+
+.excel-export-status.error {
+    color: #b42318;
+}
+
 .column-config-btn {
     height: 42px;
     border: 1px solid #b8c5d8;

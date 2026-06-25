@@ -2,7 +2,7 @@ import { GroupRow, Mode } from "../models/GroupRow";
 import { RowData } from "../models/RowData";
 import { fmt, pct } from "../utils/format";
 import { DetailColumn } from "../services/DataService";
-import { DetailPanel } from "./DetailPanel";
+import { DetailExcelExportHandler, DetailPanel } from "./DetailPanel";
 import { cleanTsvValue, runCopyAction } from "../utils/clipboard";
 import { TableSettingsService } from "../services/TableSettingsService";
 
@@ -19,7 +19,8 @@ export class DistributionTable {
         detailSortField: string,
         detailSortDirection: "asc" | "desc",
         activeRowFilter: { mode: Mode; value: string } | null,
-        tableSettingsService: TableSettingsService
+        tableSettingsService: TableSettingsService,
+        onExportExcel: DetailExcelExportHandler
     ): HTMLElement {
         const section = document.createElement("section");
         section.className = "analysis-section";
@@ -64,7 +65,8 @@ export class DistributionTable {
                 detailPage,
                 detailSortField,
                 detailSortDirection,
-                tableSettingsService
+                tableSettingsService,
+                onExportExcel
             ));
         } else {
             section.appendChild(this.renderContent(groups, mode, showBreakdown, activeRowFilter));

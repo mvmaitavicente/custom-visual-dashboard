@@ -2,6 +2,7 @@
 
 import "./../style/visual.less";
 import powerbi from "powerbi-visuals-api";
+import * as XLSX from "xlsx";
 
 import IVisual = powerbi.extensibility.visual.IVisual;
 import VisualConstructorOptions = powerbi.extensibility.visual.VisualConstructorOptions;
@@ -9,6 +10,7 @@ import VisualUpdateOptions = powerbi.extensibility.visual.VisualUpdateOptions;
 import IVisualHost = powerbi.extensibility.visual.IVisualHost;
 import ISelectionManager = powerbi.extensibility.ISelectionManager;
 import ISelectionId = powerbi.extensibility.ISelectionId;
+import IDownloadService = powerbi.extensibility.IDownloadService;
 
 import { RowData } from "./models/RowData";
 import { GroupRow } from "./models/GroupRow";
@@ -25,6 +27,7 @@ export class Visual implements IVisual {
     private readonly host: IVisualHost;
     private readonly selectionManager: ISelectionManager;
     private readonly tableSettingsService: TableSettingsService;
+    private readonly downloadService: IDownloadService;
 
     private root: HTMLElement;
     private rows: RowData[] = [];
@@ -44,11 +47,16 @@ export class Visual implements IVisual {
     private detailSortField: string = "nombre";
     private detailSortDirection: "asc" | "desc" = "asc";
     private detailSettingsLoaded: boolean = false;
+    private detailExportRows: RowData[] = [];
+    private detailExportColumns: DetailColumn[] = [];
+    private detailExportStatus: HTMLElement | null = null;
+    private detailExportButton: HTMLButtonElement | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
         this.selectionManager = options.host.createSelectionManager();
         this.tableSettingsService = new TableSettingsService(options.host);
+        this.downloadService = options.host.downloadService;
 
         this.root = document.createElement("div");
         this.root.className = "pd-root";
@@ -138,7 +146,14 @@ export class Visual implements IVisual {
             this.detailSortField,
             this.detailSortDirection,
             this.activeRowFilter,
-            this.tableSettingsService
+            this.tableSettingsService,
+            async (rows, columns, statusElement, button) => {
+                this.detailExportRows = rows;
+                this.detailExportColumns = columns;
+                this.detailExportStatus = statusElement;
+                this.detailExportButton = button;
+                await this.exportDetailToExcel();
+            }
         );
 
         page.appendChild(kpiSection);
@@ -313,6 +328,201 @@ export class Visual implements IVisual {
             sortColumn: this.detailSortField,
             sortDirection: this.detailSortDirection
         });
+    }
+
+    private async exportDetailToExcel(): Promise<void> {
+        const statusElement = this.detailExportStatus;
+        const button = this.detailExportButton;
+
+        if (!statusElement || !button) return;
+
+        button.disabled = true;
+        statusElement.className = "excel-export-status";
+        statusElement.textContent = "Generando Excel...";
+
+        try {
+            const status = await this.downloadService.exportStatus();
+            if (status !== powerbi.PrivilegeStatus.Allowed) {
+                statusElement.classList.add("error");
+                statusElement.textContent = "No se pudo descargar el archivo.";
+                return;
+            }
+
+            const headers = ["N°", ...this.detailExportColumns.map(column => column.label)];
+            const data = this.detailExportRows.map((row, index) => [
+                index + 1,
+                ...this.detailExportColumns.map(column => this.getDetailExcelValue(row, column))
+            ]);
+            const worksheet = XLSX.utils.aoa_to_sheet([headers, ...data], {
+                cellDates: true
+            });
+
+            this.applyDetailExcelFormats(worksheet);
+
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Detalle");
+
+            const excelBase64 = XLSX.write(workbook, {
+                bookType: "xlsx",
+                type: "base64"
+            });
+            const fileName = `detalle_personal_${this.getExcelTimestamp()}.xlsx`;
+            const result = await this.downloadService.exportVisualsContentExtended(
+                excelBase64,
+                fileName,
+                "base64",
+                "Reporte detalle Excel"
+            );
+
+            statusElement.classList.toggle("success", result.downloadCompleted);
+            statusElement.classList.toggle("error", !result.downloadCompleted);
+            statusElement.textContent = result.downloadCompleted
+                ? "Descarga enviada."
+                : `No se pudo descargar el archivo. downloadCompleted: ${result.downloadCompleted}`;
+        } catch (error) {
+            console.error("No se pudo exportar la Vista Detalle a Excel.", error);
+            statusElement.classList.add("error");
+            statusElement.textContent = "No se pudo descargar el archivo.";
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    private getDetailExcelValue(row: RowData, column: DetailColumn): string | number | Date {
+        const value = row[column.key];
+
+        if (this.isDetailMoneyColumn(column)) {
+            return this.toExcelNumber(value);
+        }
+
+        if (this.isDetailDateColumn(column)) {
+            return this.toExcelDate(value);
+        }
+
+        return String(value ?? "");
+    }
+
+    private applyDetailExcelFormats(worksheet: XLSX.WorkSheet): void {
+        worksheet["!cols"] = [
+            { wch: 8 },
+            ...this.detailExportColumns.map(column => {
+                const values = this.detailExportRows.map(row =>
+                    String(this.getDetailExcelValue(row, column) ?? "")
+                );
+                const maxLength = Math.max(column.label.length, ...values.map(value => value.length));
+                return { wch: Math.min(Math.max(maxLength + 2, 10), 45) };
+            })
+        ];
+
+        this.detailExportColumns.forEach((column, columnIndex) => {
+            if (!this.isDetailDateColumn(column)) return;
+
+            for (let rowIndex = 1; rowIndex <= this.detailExportRows.length; rowIndex++) {
+                const address = XLSX.utils.encode_cell({
+                    r: rowIndex,
+                    c: columnIndex + 1
+                });
+                const cell = worksheet[address];
+                if (cell?.t === "d") {
+                    cell.z = "dd/mm/yyyy";
+                }
+            }
+        });
+    }
+
+    private isDetailMoneyColumn(column: DetailColumn): boolean {
+        const label = this.normalizeExcelColumnName(column.label);
+        const key = this.normalizeExcelColumnName(column.key);
+        return label === "s/." || label.includes("monto") || key.includes("monto");
+    }
+
+    private isDetailDateColumn(column: DetailColumn): boolean {
+        const label = this.normalizeExcelColumnName(column.label);
+        const key = this.normalizeExcelColumnName(column.key);
+        return label.includes("fecha") || key.includes("fecha");
+    }
+
+    private normalizeExcelColumnName(value: string): string {
+        return value
+            .toLowerCase()
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .trim();
+    }
+
+    private toExcelNumber(value: unknown): number | string {
+        if (typeof value === "number") {
+            return Number.isFinite(value) ? value : "";
+        }
+
+        const raw = String(value ?? "")
+            .replace(/s\/\.?/gi, "")
+            .replace(/\s/g, "")
+            .trim();
+        if (!raw) return "";
+
+        const lastComma = raw.lastIndexOf(",");
+        const lastDot = raw.lastIndexOf(".");
+        let normalized = raw;
+
+        if (lastComma >= 0 && lastDot >= 0) {
+            normalized = lastComma > lastDot
+                ? raw.replace(/\./g, "").replace(",", ".")
+                : raw.replace(/,/g, "");
+        } else if (lastComma >= 0) {
+            const decimalDigits = raw.length - lastComma - 1;
+            normalized = decimalDigits > 0 && decimalDigits <= 2
+                ? raw.replace(/\./g, "").replace(",", ".")
+                : raw.replace(/,/g, "");
+        } else {
+            normalized = raw.replace(/,/g, "");
+        }
+
+        const number = Number(normalized);
+        return Number.isFinite(number) ? number : raw;
+    }
+
+    private toExcelDate(value: unknown): Date | string {
+        if (value instanceof Date && !isNaN(value.getTime())) {
+            return value;
+        }
+
+        const raw = String(value ?? "").trim();
+        if (!raw) return "";
+
+        const isoDate = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw);
+        if (isoDate) {
+            return new Date(
+                Number(isoDate[1]),
+                Number(isoDate[2]) - 1,
+                Number(isoDate[3])
+            );
+        }
+
+        const dayFirstDate = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+        if (dayFirstDate) {
+            return new Date(
+                Number(dayFirstDate[3]),
+                Number(dayFirstDate[2]) - 1,
+                Number(dayFirstDate[1])
+            );
+        }
+
+        const date = new Date(raw);
+        return isNaN(date.getTime()) ? raw : date;
+    }
+
+    private getExcelTimestamp(): string {
+        const now = new Date();
+        const pad = (value: number) => String(value).padStart(2, "0");
+        return [
+            now.getFullYear(),
+            pad(now.getMonth() + 1),
+            pad(now.getDate())
+        ].join("") + "_" + [
+            pad(now.getHours()),
+            pad(now.getMinutes())
+        ].join("");
     }
 
     private sortGroups(groups: GroupRow[]): GroupRow[] {
